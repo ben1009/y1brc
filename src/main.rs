@@ -1,11 +1,9 @@
 #![feature(slice_split_once)]
 
+use fxhash::FxHashMap;
 use std::io::{BufWriter, Write};
-use std::{
-    collections::{BTreeMap, HashMap, hash_map::Entry},
-    fs::File,
-    io::Read,
-};
+use std::{collections::BTreeMap, fs::File, io::Read};
+
 struct Stat {
     count: usize,
     min: f32,
@@ -14,13 +12,20 @@ struct Stat {
 }
 
 impl Stat {
-    fn new() -> Self {
+    fn default() -> Self {
         Stat {
-            count: 1,
+            count: 0,
             min: f32::MAX,
             max: f32::MIN,
             sum: 0.0,
         }
+    }
+
+    fn add(&mut self, value: f32) {
+        self.count += 1;
+        self.min = self.min.min(value);
+        self.max = self.max.max(value);
+        self.sum += value;
     }
 }
 
@@ -28,28 +33,17 @@ fn main() -> std::io::Result<()> {
     let mut f = File::open("measurements.txt")?;
     let mut buf = vec![];
     f.read_to_end(&mut buf)?;
-    let mut stats = HashMap::new();
+    let mut stats = FxHashMap::default();
     let mut line_count = 0;
     for line in buf.split(|&b| b == b'\n') {
         if let Some((c, t)) = line.split_once(|&c| c == b';') {
             line_count += 1;
-            let t = String::from_utf8_lossy(t).parse::<f32>().unwrap();
-            match stats.entry(c) {
-                Entry::Vacant(e) => {
-                    let mut s = Stat::new();
-                    s.max = s.max.max(t);
-                    s.min = s.min.min(t);
-                    s.sum += t;
-                    e.insert(s);
-                }
-                Entry::Occupied(mut e) => {
-                    let s = e.get_mut();
-                    s.count += 1;
-                    s.max = s.max.max(t);
-                    s.min = s.min.min(t);
-                    s.sum += t;
-                }
-            }
+            let t = unsafe {
+                String::from_utf8_unchecked(t.to_vec())
+                    .parse::<f32>()
+                    .unwrap()
+            };
+            stats.entry(c).or_insert_with(Stat::default).add(t);
         }
     }
 
@@ -63,7 +57,7 @@ fn main() -> std::io::Result<()> {
         writeln!(
             writer,
             "{}: {:.1}  / {:.1} / {:.1}",
-            String::from_utf8_lossy(c),
+            unsafe { String::from_utf8_unchecked(c.to_vec()) },
             s.min,
             s.sum / s.count as f32,
             s.max
