@@ -2,6 +2,7 @@
 
 use anyhow::Context;
 use fxhash::FxHashMap;
+use memchr::memchr;
 use std::io::{BufWriter, Write};
 use std::{collections::BTreeMap, fs::File};
 
@@ -35,9 +36,25 @@ fn main() -> anyhow::Result<()> {
     let f = File::open("measurements.txt")?;
     // prefetch the whole file into memory
     let m = unsafe { memmap2::MmapOptions::new().populate().map(&f) }?;
-    
+
     let mut stats = FxHashMap::default();
     let mut line_count = 0;
+    let mut m = &m[..];
+    while let Some(end) = memchr::memchr(b'\n', m) {
+        let separate = memchr(b';', m).context("invalid file format")?;
+        let name = &m[..separate];
+        let value = &m[separate + 1..end];
+        m = &m[end + 1..];
+
+        line_count += 1;
+        let t = unsafe {
+            String::from_utf8_unchecked(value.to_vec())
+                .parse::<f32>()
+                .context("parse to f32 fail")?
+        };
+        stats.entry(name).or_insert_with(Stat::default).add(t);
+    }
+
     for line in m.split(|&b| b == b'\n') {
         if let Some((c, t)) = line.split_once(|&c| c == b';') {
             line_count += 1;
