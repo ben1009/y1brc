@@ -1,8 +1,9 @@
 #![feature(slice_split_once)]
 
+use anyhow::Context;
 use fxhash::FxHashMap;
 use std::io::{BufWriter, Write};
-use std::{collections::BTreeMap, fs::File, io::Read};
+use std::{collections::BTreeMap, fs::File};
 
 struct Stat {
     count: usize,
@@ -29,19 +30,21 @@ impl Stat {
     }
 }
 
-fn main() -> std::io::Result<()> {
-    let mut f = File::open("measurements.txt")?;
-    let mut buf = vec![];
-    f.read_to_end(&mut buf)?;
+#[inline(always)]
+fn main() -> anyhow::Result<()> {
+    let f = File::open("measurements.txt")?;
+    // prefetch the whole file into memory
+    let m = unsafe { memmap2::MmapOptions::new().populate().map(&f) }?;
+    
     let mut stats = FxHashMap::default();
     let mut line_count = 0;
-    for line in buf.split(|&b| b == b'\n') {
+    for line in m.split(|&b| b == b'\n') {
         if let Some((c, t)) = line.split_once(|&c| c == b';') {
             line_count += 1;
             let t = unsafe {
                 String::from_utf8_unchecked(t.to_vec())
                     .parse::<f32>()
-                    .unwrap()
+                    .context("parse to f32 fail")?
             };
             stats.entry(c).or_insert_with(Stat::default).add(t);
         }
