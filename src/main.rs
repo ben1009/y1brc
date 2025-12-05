@@ -55,7 +55,7 @@ fn parse_temp(s: &[u8]) -> i32 {
     sign * val
 }
 
-fn to_key(name: &[u8]) -> u64 {
+fn to_key(name: &[u8]) -> u32 {
     // Hash the first and last 2 bytes. since the minimum length is 3, e.g. ("Wau", 27.8),
     let head: [u8; 2] = *array_ref![name, 0, 2];
     let tail: [u8; 2] = *array_ref![name, name.len() - 2, 2];
@@ -63,7 +63,7 @@ fn to_key(name: &[u8]) -> u64 {
     let khead = u16::from_ne_bytes(head) << shift;
     let ktail = u16::from_ne_bytes(tail) >> shift;
 
-    khead as u64 + ktail as u64
+    khead as u32 + ktail as u32
 }
 
 #[inline(always)]
