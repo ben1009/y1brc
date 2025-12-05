@@ -1,14 +1,12 @@
-#![feature(split_array)]
-
 use anyhow::Context;
-use arrayref::array_ref;
 use fxhash::FxHashMap;
 use memchr::memchr;
 use std::io::{BufWriter, Write};
+use std::ops::BitXor;
 use std::{collections::BTreeMap, fs::File};
 
 struct Stat {
-    count: i32,
+    count: u32,
     min: i32,
     max: i32,
     sum: i32,
@@ -36,7 +34,7 @@ impl Stat {
 fn parse_temp(s: &[u8]) -> i32 {
     let mut i = 0;
     let mut sign = 1;
-    if s[0] == b'-' {
+    if *unsafe { s.get_unchecked(0) } == b'-' {
         i = 1;
         sign = -1;
     }
@@ -45,7 +43,7 @@ fn parse_temp(s: &[u8]) -> i32 {
     // Since input is guaranteed to have 1 decimal place, we can simplify parsing
     // Standard format is digits + dot + one digit, e.g. "Palermo", 18.5
     while i < s.len() {
-        let b = s[i];
+        let b = *unsafe { s.get_unchecked(i) };
         if b != b'.' {
             val = val * 10 + (b - b'0') as i32;
         }
@@ -55,15 +53,21 @@ fn parse_temp(s: &[u8]) -> i32 {
     sign * val
 }
 
-fn to_key(name: &[u8]) -> u32 {
-    // Hash the first and last 2 bytes. since the minimum length is 3, e.g. ("Wau", 27.8),
-    let head: [u8; 2] = *array_ref![name, 0, 2];
-    let tail: [u8; 2] = *array_ref![name, name.len() - 2, 2];
-    let shift = 32usize.saturating_sub(2 * name.len());
-    let khead = u16::from_ne_bytes(head) << shift;
-    let ktail = u16::from_ne_bytes(tail) >> shift;
+// get from fxhash
+const K: u64 = 0x517cc1b727220a95;
+#[inline(always)]
+fn add_to_hash(x: u64, i: u64) -> u64 {
+    x.rotate_left(5).bitxor(i).wrapping_mul(K)
+}
 
-    khead as u32 + ktail as u32
+fn to_key(name: &[u8]) -> u64 {
+    let mut ret = *unsafe { name.get_unchecked(0) } as u64;
+    ret = add_to_hash(ret, *unsafe { name.get_unchecked(1) } as u64);
+    ret = add_to_hash(ret, *unsafe { name.get_unchecked(2) } as u64);
+    ret = add_to_hash(ret, *unsafe { name.get_unchecked(3) } as u64);
+    ret = add_to_hash(ret, *unsafe { name.get_unchecked(4) } as u64);
+
+    add_to_hash(ret, name.len() as u64)
 }
 
 #[inline(always)]
@@ -76,16 +80,18 @@ fn main() -> anyhow::Result<()> {
     let mut key_names = FxHashMap::default();
     let mut line_count = 0;
     let mut m = &m[..];
-    // simd to speed up matching
+    // simd to speed up searching
     while let Some(end) = memchr::memchr(b'\n', m) {
         let separate = memchr(b';', m).context("invalid file format")?;
         let name = &m[..separate];
         let value = &m[separate + 1..end];
+        // for better hash, use the whole data as key
+        let key = &m[..end];
         m = &m[end + 1..];
 
         line_count += 1;
         let t = parse_temp(value);
-        let k = to_key(name);
+        let k = to_key(key);
         key_names.entry(k).or_insert(name);
         stats.entry(k).or_insert_with(Stat::default).add(t);
     }
@@ -108,15 +114,17 @@ fn main() -> anyhow::Result<()> {
             "{}: {:.1}  / {:.1} / {:.1}",
             c,
             (s.min as f32) / 10.0,
-            (s.sum / s.count) as f32 / 10.0,
+            (s.sum / s.count as i32) as f32 / 10.0,
             s.max as f32 / 10.0,
         )?;
     }
+    assert_eq!(line_count, 1000000000);
+    assert_eq!(stats_map.len(), 413);
     writeln!(writer, "\ntotal {} measurements", line_count)?;
     writeln!(
         writer,
         "Category: min / avg / max, total {} categories",
-        stats.len()
+        stats_map.len()
     )?;
 
     Ok(())
