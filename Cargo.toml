@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = { version = "1.0.79" }
+arrayref = "0.3.9"
 fxhash = { version = "0.2.1" }
 memchr = { version = "2", default-features = false }
 memmap2 = "0.9"
@@ -16,7 +17,6 @@ rand_distr = { version = "0.4.3" }
 [[bin]]
 name = "generate"
 # required-features = ["generator"]# # path = "bin/generate.rs"
-
 # [[bin]]
 # name = "1brc"
 # path = "src/main.rs"
