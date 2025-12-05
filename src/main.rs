@@ -1,4 +1,7 @@
+#![feature(split_array)]
+
 use anyhow::Context;
+use arrayref::array_ref;
 use fxhash::FxHashMap;
 use memchr::memchr;
 use std::io::{BufWriter, Write};
@@ -40,7 +43,7 @@ fn parse_temp(s: &[u8]) -> i32 {
 
     let mut val = 0;
     // Since input is guaranteed to have 1 decimal place, we can simplify parsing
-    // Standard format is digits + dot + one digit
+    // Standard format is digits + dot + one digit, e.g. "Palermo", 18.5
     while i < s.len() {
         let b = s[i];
         if b != b'.' {
@@ -52,6 +55,17 @@ fn parse_temp(s: &[u8]) -> i32 {
     sign * val
 }
 
+fn to_key(name: &[u8]) -> u64 {
+    // Hash the first and last 2 bytes. since the minimum length is 3, e.g. ("Wau", 27.8),
+    let head: [u8; 2] = *array_ref![name, 0, 2];
+    let tail: [u8; 2] = *array_ref![name, name.len() - 2, 2];
+    let shift = 32usize.saturating_sub(2 * name.len());
+    let khead = u16::from_ne_bytes(head) << shift;
+    let ktail = u16::from_ne_bytes(tail) >> shift;
+
+    khead as u64 + ktail as u64
+}
+
 #[inline(always)]
 fn main() -> anyhow::Result<()> {
     let f = File::open("measurements.txt")?;
@@ -59,8 +73,10 @@ fn main() -> anyhow::Result<()> {
     let m = unsafe { memmap2::MmapOptions::new().populate().map(&f) }?;
 
     let mut stats = FxHashMap::default();
+    let mut key_names = FxHashMap::default();
     let mut line_count = 0;
     let mut m = &m[..];
+    // simd to speed up matching
     while let Some(end) = memchr::memchr(b'\n', m) {
         let separate = memchr(b';', m).context("invalid file format")?;
         let name = &m[..separate];
@@ -69,20 +85,28 @@ fn main() -> anyhow::Result<()> {
 
         line_count += 1;
         let t = parse_temp(value);
-        stats.entry(name).or_insert_with(Stat::default).add(t);
+        let k = to_key(name);
+        key_names.entry(k).or_insert(name);
+        stats.entry(k).or_insert_with(Stat::default).add(t);
     }
 
-    let stats = BTreeMap::from_iter(stats);
+    let mut stats_map = BTreeMap::new();
+    for (k, v) in &stats {
+        stats_map.insert(
+            unsafe { String::from_utf8_unchecked(key_names[k].to_vec()) },
+            v,
+        );
+    }
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     let mut writer = BufWriter::new(&mut handle);
 
     write!(writer, "Category: min / avg / max")?;
-    for (c, s) in &stats {
+    for (c, s) in &stats_map {
         writeln!(
             writer,
             "{}: {:.1}  / {:.1} / {:.1}",
-            unsafe { String::from_utf8_unchecked(c.to_vec()) },
+            c,
             (s.min as f32) / 10.0,
             (s.sum / s.count) as f32 / 10.0,
             s.max as f32 / 10.0,
