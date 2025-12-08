@@ -24,8 +24,13 @@ impl Stat {
 
     fn add(&mut self, value: i32) {
         self.count += 1;
-        self.min = self.min.min(value);
-        self.max = self.max.max(value);
+        // branch is 1.00 ± 0.03 times faster than using min/max functions by hyperfine
+        if value < self.min {
+            self.min = value;
+        }
+        if value > self.max {
+            self.max = value;
+        }
         self.sum += value;
     }
 }
@@ -61,12 +66,11 @@ fn add_to_hash(x: u64, i: u64) -> u64 {
 }
 
 fn to_key(name: &[u8]) -> u64 {
-    let mut ret = *unsafe { name.get_unchecked(0) } as u64;
-    ret = add_to_hash(ret, *unsafe { name.get_unchecked(1) } as u64);
-    ret = add_to_hash(ret, *unsafe { name.get_unchecked(2) } as u64);
-    ret = add_to_hash(ret, *unsafe { name.get_unchecked(3) } as u64);
-    ret = add_to_hash(ret, *unsafe { name.get_unchecked(4) } as u64);
-
+    let r = unsafe { name.get_unchecked(0..5) };
+    let mut ret = 0;
+    for v in r {
+        ret = add_to_hash(ret, *v as u64);
+    }
     add_to_hash(ret, name.len() as u64)
 }
 
@@ -83,11 +87,11 @@ fn main() -> anyhow::Result<()> {
     // simd to speed up searching
     while let Some(end) = memchr::memchr(b'\n', m) {
         let separate = memchr(b';', m).context("invalid file format")?;
-        let name = &m[..separate];
-        let value = &m[separate + 1..end];
+        let name = unsafe { m.get_unchecked(..separate) };
+        let value = unsafe { m.get_unchecked(separate + 1..end) };
         // for better hash, use the whole data as key
-        let key = &m[..end];
-        m = &m[end + 1..];
+        let key = unsafe { m.get_unchecked(..end) };
+        m = unsafe { m.get_unchecked(end + 1..) };
 
         line_count += 1;
         let t = parse_temp(value);
