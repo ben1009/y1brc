@@ -1,9 +1,14 @@
-use anyhow::Context;
+use anyhow::{Context, Ok};
 use fxhash::FxHashMap;
 use memchr::memchr;
 use std::io::{BufWriter, Write};
 use std::ops::BitXor;
+use std::sync::mpsc;
+use std::thread;
 use std::{collections::BTreeMap, fs::File};
+
+const NEWLINE: u8 = b'\n';
+const SEMICOLON: u8 = b';';
 
 struct Stat {
     count: u32,
@@ -32,6 +37,17 @@ impl Stat {
             self.max = value;
         }
         self.sum += value;
+    }
+
+    fn merge(&mut self, other: &Stat) {
+        self.count += other.count;
+        if other.min < self.min {
+            self.min = other.min;
+        }
+        if other.max > self.max {
+            self.max = other.max;
+        }
+        self.sum += other.sum;
     }
 }
 
@@ -75,18 +91,14 @@ fn to_key(name: &[u8]) -> u64 {
 }
 
 #[inline(always)]
-fn main() -> anyhow::Result<()> {
-    let f = File::open("measurements.txt")?;
-    // prefetch the whole file into memory
-    let m = unsafe { memmap2::MmapOptions::new().populate().map(&f) }?;
-
+fn chunk_stats(m_chunks: &[u8]) -> (FxHashMap<u64, Stat>, FxHashMap<u64, &[u8]>, u32) {
     let mut stats = FxHashMap::default();
     let mut key_names = FxHashMap::default();
     let mut line_count = 0;
-    let mut m = &m[..];
+    let mut m = m_chunks;
     // simd to speed up searching
-    while let Some(end) = memchr::memchr(b'\n', m) {
-        let separate = memchr(b';', m).context("invalid file format")?;
+    while let Some(end) = memchr::memchr(NEWLINE, m) {
+        let separate = memchr(SEMICOLON, m).context("invalid file format").unwrap();
         let name = unsafe { m.get_unchecked(..separate) };
         let value = unsafe { m.get_unchecked(separate + 1..end) };
         // for better hash, use the whole data as key
@@ -100,19 +112,58 @@ fn main() -> anyhow::Result<()> {
         stats.entry(k).or_insert_with(Stat::default).add(t);
     }
 
+    (stats, key_names, line_count)
+}
+
+#[inline(always)]
+fn main() -> anyhow::Result<()> {
+    let f = File::open("measurements.txt")?;
+    // prefetch the whole file into memory
+    let m = unsafe { memmap2::MmapOptions::new().populate().map(&f) }?;
+
     let mut stats_map = BTreeMap::new();
-    for (k, v) in &stats {
-        stats_map.insert(
-            unsafe { String::from_utf8_unchecked(key_names[k].to_vec()) },
-            v,
-        );
-    }
+    let mut line_count = 0;
+    thread::scope(|s| {
+        let num_threads = std::thread::available_parallelism().unwrap().get();
+        let chunk_size = m.len() / num_threads;
+        let mut start = 0;
+        let (tx, rx) = mpsc::sync_channel(num_threads);
+        while start < m.len() {
+            let mut end = m.len().min(start + chunk_size);
+            if end < m.len() {
+                let e = memchr(NEWLINE, unsafe { m.get_unchecked(end..) }).unwrap();
+                end += e + 1;
+            }
+            let m_chunks = unsafe { m.get_unchecked(start..end) };
+            start = end;
+            let tx = tx.clone();
+            s.spawn(move || tx.send(chunk_stats(m_chunks)));
+        }
+
+        drop(tx);
+        for (s, k, c) in rx {
+            line_count += c;
+            for (key, stat) in s {
+                stats_map
+                    .entry(unsafe { String::from_utf8_unchecked(k[&key].to_vec()) })
+                    .or_insert_with(Stat::default)
+                    .merge(&stat);
+            }
+        }
+    });
+
+    print_stats(&stats_map, line_count)?;
+
+    Ok(())
+}
+
+fn print_stats(stats_map: &BTreeMap<String, Stat>, line_count: u32) -> anyhow::Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     let mut writer = BufWriter::new(&mut handle);
 
     write!(writer, "Category: min / avg / max")?;
-    for (c, s) in &stats_map {
+    for (c, s) in stats_map {
         writeln!(
             writer,
             "{}: {:.1}  / {:.1} / {:.1}",
