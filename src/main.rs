@@ -15,8 +15,8 @@ const SEMICOLON: u8 = b';';
 
 struct Stat {
     count: u32,
-    min: i32,
-    max: i32,
+    min: i16,
+    max: i16,
     sum: i32,
 }
 
@@ -24,13 +24,13 @@ impl Stat {
     fn default() -> Self {
         Stat {
             count: 0,
-            min: i32::MAX,
-            max: i32::MIN,
+            min: i16::MAX,
+            max: i16::MIN,
             sum: 0,
         }
     }
 
-    fn add(&mut self, value: i32) {
+    fn add(&mut self, value: i16) {
         self.count += 1;
         // branch is 1.00 ± 0.03 times faster than using min/max functions by hyperfine
         if value < self.min {
@@ -39,7 +39,7 @@ impl Stat {
         if value > self.max {
             self.max = value;
         }
-        self.sum += value;
+        self.sum += value as i32;
     }
 
     fn merge(&mut self, other: &Stat) {
@@ -55,6 +55,7 @@ impl Stat {
 }
 
 #[inline(always)]
+#[allow(dead_code)]
 fn parse_temp(s: &[u8]) -> i32 {
     let mut i = 0;
     let mut sign = 1;
@@ -75,6 +76,22 @@ fn parse_temp(s: &[u8]) -> i32 {
     }
 
     sign * val
+}
+
+#[inline]
+fn parse_temperature(t: &[u8]) -> i16 {
+    let tlen = t.len();
+    unsafe { std::hint::assert_unchecked(tlen >= 3) };
+    let is_neg = std::hint::select_unpredictable(t[0] == b'-', true, false);
+    let sign = i16::from(!is_neg) * 2 - 1;
+    let skip = usize::from(is_neg);
+    let has_dd = std::hint::select_unpredictable(tlen - skip == 4, true, false);
+    let mul = i16::from(has_dd) * 90 + 10;
+    let t1 = mul * i16::from(t[skip] - b'0');
+    let t2 = i16::from(has_dd) * 10 * i16::from(t[tlen - 3] - b'0');
+    let t3 = i16::from(t[tlen - 1] - b'0');
+
+    sign * (t1 + t2 + t3)
 }
 
 // get from fxhash
@@ -110,7 +127,7 @@ fn chunk_stats(m_chunks: &[u8]) -> (FxHashMap<u64, Stat>, FxHashMap<u64, &[u8]>,
         m = unsafe { m.get_unchecked(end + 1..) };
 
         line_count += 1;
-        let t = parse_temp(value);
+        let t = parse_temperature(value); //parse_temp(value);
         let k = to_key(key);
         key_names.entry(k).or_insert(name);
         stats.entry(k).or_insert_with(Stat::default).add(t);
