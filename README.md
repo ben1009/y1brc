@@ -6,10 +6,10 @@
 - run `./dev time` for measure the running time
 - run `./dev perf` for performance stat
 ```
-hyperfine --warmup 3 ./target/release/y1brc
+hyperfine ./target/release/y1brc
 Benchmark 1: ./target/release/y1brc
-  Time (mean ± σ):      1.400 s ±  0.018 s    [User: 28.920 s, System: 0.441 s]
-  Range (min … max):    1.381 s …  1.437 s    10 runs
+  Time (mean ± σ):      1.219 s ±  0.011 s    [User: 23.498 s, System: 0.435 s]
+  Range (min … max):    1.204 s …  1.242 s    10 runs
 ```
 ```
 neofetch
