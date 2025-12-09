@@ -4,10 +4,11 @@
 //!
 //! See reference implementation: https://github.com/gunnarmorling/1brc/blob/main/src/main/java/dev/morling/onebrc/CreateMeasurements.java
 
-use anyhow::{Context, Result, anyhow};
-use rand::seq::SliceRandom;
-use rand_distr::{Distribution, Normal};
 use std::io::Write;
+
+use anyhow::{Context, Result, anyhow};
+use rand::seq::IndexedRandom;
+use rand_distr::{Distribution, Normal};
 
 fn main() -> Result<()> {
     let n = std::env::args()
@@ -16,7 +17,7 @@ fn main() -> Result<()> {
         .parse::<usize>()
         .context("must be able to parse as usize")?;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let file =
         std::fs::File::create("measurements.txt").context("opening output file for write")?;
