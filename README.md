@@ -3,5 +3,5 @@
 1brc for fun
 
 - run `./dev check` for all checks
-- run `./dev time` for meature the running time
+- run `./dev time` for measure the running time
 - run `./dev perf` for performance stat
