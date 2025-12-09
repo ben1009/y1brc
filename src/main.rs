@@ -1,11 +1,14 @@
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io::{BufWriter, Write},
+    ops::BitXor,
+    thread,
+};
+
 use anyhow::{Context, Ok};
 use fxhash::FxHashMap;
 use memchr::memchr;
-use std::io::{BufWriter, Write};
-use std::ops::BitXor;
-use std::sync::mpsc;
-use std::thread;
-use std::{collections::BTreeMap, fs::File};
 
 const NEWLINE: u8 = b'\n';
 const SEMICOLON: u8 = b';';
@@ -81,6 +84,7 @@ fn add_to_hash(x: u64, i: u64) -> u64 {
     x.rotate_left(5).bitxor(i).wrapping_mul(K)
 }
 
+#[inline(always)]
 fn to_key(name: &[u8]) -> u64 {
     let r = unsafe { name.get_unchecked(0..5) };
     let mut ret = 0;
@@ -127,7 +131,7 @@ fn main() -> anyhow::Result<()> {
         let num_threads = std::thread::available_parallelism().unwrap().get();
         let chunk_size = m.len() / num_threads;
         let mut start = 0;
-        let (tx, rx) = mpsc::sync_channel(num_threads);
+        let (tx, rx) = crossbeam::channel::bounded(num_threads);
         while start < m.len() {
             let mut end = m.len().min(start + chunk_size);
             if end < m.len() {
@@ -157,6 +161,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[inline(always)]
 fn print_stats(stats_map: &BTreeMap<String, Stat>, line_count: u32) -> anyhow::Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
