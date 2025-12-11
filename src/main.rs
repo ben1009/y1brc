@@ -79,16 +79,25 @@ fn parse_temp(s: &[u8]) -> i32 {
 }
 
 #[inline]
+// branchless temperature parser
 fn parse_temperature(t: &[u8]) -> i16 {
     let tlen = t.len();
+    // guarantee to the compiler, all data is at least 3 bytes long, e.g. "0.0"
     unsafe { std::hint::assert_unchecked(tlen >= 3) };
+    // deal with sign
     let is_neg = std::hint::select_unpredictable(t[0] == b'-', true, false);
+    // if neg, !is_neg = 0, 0*2-1 = -1, else 1*2-1 = 1
     let sign = i16::from(!is_neg) * 2 - 1;
+    // skip if neg
     let skip = usize::from(is_neg);
+    // deal with 12.3.d or 1.2, double digit before dot or not
     let has_dd = std::hint::select_unpredictable(tlen - skip == 4, true, false);
-    let mul = i16::from(has_dd) * 90 + 10;
+    let mul = i16::from(has_dd) * 100;
+    // highest digit if have
     let t1 = mul * i16::from(t[skip] - b'0');
-    let t2 = i16::from(has_dd) * 10 * i16::from(t[tlen - 3] - b'0');
+    // middle digit
+    let t2 = 10 * i16::from(t[tlen - 3] - b'0');
+    // lowest digit
     let t3 = i16::from(t[tlen - 1] - b'0');
 
     sign * (t1 + t2 + t3)
