@@ -112,11 +112,13 @@ fn add_to_hash(x: u64, i: u64) -> u64 {
 
 #[inline(always)]
 fn to_key(name: &[u8]) -> u64 {
-    let r = unsafe { name.get_unchecked(0..5) };
+    unsafe { std::hint::assert_unchecked(name.len() >= 4) };
     let mut ret = 0;
-    for v in r {
-        ret = add_to_hash(ret, *v as u64);
-    }
+    ret = add_to_hash(ret, name[0] as u64);
+    ret = add_to_hash(ret, name[1] as u64);
+    ret = add_to_hash(ret, name[2] as u64);
+    ret = add_to_hash(ret, name[3] as u64);
+
     add_to_hash(ret, name.len() as u64)
 }
 
