@@ -150,8 +150,15 @@ fn chunk_stats(m_chunks: &[u8]) -> (FxHashMap<u64, Stat>, FxHashMap<u64, &[u8]>,
 #[inline(always)]
 fn main() -> anyhow::Result<()> {
     let f = File::open("measurements.txt")?;
-    // prefetch the whole file into memory
-    let m = unsafe { memmap2::MmapOptions::new().populate().map(&f) }?;
+    // prefetch the whole file into memory, enable huge page
+    // ./target/release/y1brc ran
+    // 1.20 ± 0.20 times faster than ./target/release/y1brc-normal-page
+    let m = unsafe {
+        memmap2::MmapOptions::new()
+            .populate()
+            .huge(Some(21))
+            .map(&f)
+    }?;
 
     let mut stats_map = BTreeMap::new();
     let mut line_count = 0;
