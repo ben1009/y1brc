@@ -27,3 +27,5 @@ target
 measurements.txt
 flamegraph.svg
 perf.*
+/pgo-data
+*.profdata
