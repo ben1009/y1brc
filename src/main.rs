@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs::File,
     io::{BufWriter, Write},
     ops::BitXor,
@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Ok};
-use fxhash::FxHashMap;
+use fxhash::{FxBuildHasher, FxHashMap};
 use memchr::memchr;
 
 const NEWLINE: u8 = b'\n';
@@ -124,8 +124,8 @@ fn to_key(name: &[u8]) -> u64 {
 
 #[inline(always)]
 fn chunk_stats(m_chunks: &[u8]) -> (FxHashMap<u64, Stat>, FxHashMap<u64, &[u8]>, u32) {
-    let mut stats = FxHashMap::default();
-    let mut key_names = FxHashMap::default();
+    let mut stats = HashMap::with_capacity_and_hasher(1024, FxBuildHasher::default());
+    let mut key_names = HashMap::with_capacity_and_hasher(1024, FxBuildHasher::default());
     let mut line_count = 0;
     let mut m = m_chunks;
     // simd to speed up searching
