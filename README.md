@@ -5,6 +5,7 @@
 - run `./dev check` for all checks
 - run `./dev time` for measure the running time
 - run `./dev perf` for performance stat
+
 ```
 hyperfine --warmup 3 ./target/release/y1brc
 Benchmark 1: ./target/release/y1brc
@@ -12,6 +13,7 @@ Benchmark 1: ./target/release/y1brc
   Range (min … max):    1.154 s …  1.223 s    10 runs
  
 ```
+
 ```
 neofetch
                    -`                    xxx@archlinux 
