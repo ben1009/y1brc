@@ -9,9 +9,9 @@
 ```
 hyperfine --warmup 3 ./target/release/y1brc
 Benchmark 1: ./target/release/y1brc
-  Time (mean ± σ):      1.207 s ±  0.012 s    [User: 23.601 s, System: 0.462 s]
-  Range (min … max):    1.184 s …  1.222 s    10 runs
- 
+  Time (mean ± σ):      1.046 s ±  0.024 s    [User: 22.161 s, System: 0.322 s]
+  Range (min … max):    1.021 s …  1.095 s    10 runs
+  
 ```
 
 ```
