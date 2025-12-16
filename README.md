@@ -9,11 +9,9 @@
 ```
 hyperfine --warmup 3 ./target/release/y1brc
 Benchmark 1: ./target/release/y1brc
-  Time (mean ± σ):      1.189 s ±  0.022 s    [User: 22.846 s, System: 0.434 s]
-  Range (min … max):    1.154 s …  1.223 s    10 runs
- 
-```
-
+  Time (mean ± σ):      1.046 s ±  0.024 s    [User: 22.161 s, System: 0.322 s]
+  Range (min … max):    1.021 s …  1.095 s    10 runs
+  
 ```
 neofetch
                    -`                    xxx@archlinux 
