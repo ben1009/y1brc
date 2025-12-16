@@ -13,8 +13,6 @@ Benchmark 1: ./target/release/y1brc
   Range (min … max):    1.021 s …  1.095 s    10 runs
   
 ```
-
-```
 neofetch
                    -`                    xxx@archlinux 
                   .o+`                   ------------- 
