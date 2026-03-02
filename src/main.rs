@@ -6,9 +6,9 @@ use std::{
     thread,
 };
 
-use anyhow::{Context, Ok};
+use anyhow::Ok;
 use fxhash::{FxBuildHasher, FxHashMap};
-use memchr::memchr;
+use memchr::{memchr, memchr2};
 
 const NEWLINE: u8 = b'\n';
 const SEMICOLON: u8 = b';';
@@ -137,14 +137,17 @@ fn chunk_stats(m_chunks: &[u8]) -> (FxHashMap<u64, Entry<'_>>, u32) {
     let mut line_count = 0u32;
     let mut m = m_chunks;
 
-    // SIMD-accelerated line scanning
-    while let Some(end) = memchr::memchr(NEWLINE, m) {
-        let separate = memchr(SEMICOLON, m).context("invalid file format").unwrap();
-        let name = unsafe { m.get_unchecked(..separate) };
-        let value = unsafe { m.get_unchecked(separate + 1..end) };
+    // Single-pass SIMD-accelerated scanning using memchr2
+    // Finds both ';' and '\n' in one scan
+    loop {
+        let Some((semi_pos, nl_pos)) = find_semicolon_newline(m) else {
+            break;
+        };
+        let name = unsafe { m.get_unchecked(..semi_pos) };
+        let value = unsafe { m.get_unchecked(semi_pos + 1..nl_pos) };
         // Use full line as hash key for better distribution
-        let key = unsafe { m.get_unchecked(..end) };
-        m = unsafe { m.get_unchecked(end + 1..) };
+        let key = unsafe { m.get_unchecked(..nl_pos) };
+        m = unsafe { m.get_unchecked(nl_pos + 1..) };
 
         line_count += 1;
         let t = parse_temperature(value);
@@ -167,6 +170,21 @@ fn chunk_stats(m_chunks: &[u8]) -> (FxHashMap<u64, Entry<'_>>, u32) {
     }
 
     (entries, line_count)
+}
+
+/// Find both semicolon and newline in a single pass using memchr2.
+/// Returns (semicolon_position, newline_position) if both found.
+#[inline(always)]
+fn find_semicolon_newline(data: &[u8]) -> Option<(usize, usize)> {
+    // memchr2 finds the first occurrence of either byte
+    match memchr2(SEMICOLON, NEWLINE, data) {
+        Some(semi_pos) if data[semi_pos] == SEMICOLON => {
+            // Found semicolon, now find newline after it
+            let after_semi = semi_pos + 1;
+            memchr(NEWLINE, &data[after_semi..]).map(|nl| (semi_pos, after_semi + nl))
+        }
+        _ => None,
+    }
 }
 
 #[inline(always)]

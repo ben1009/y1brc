@@ -402,7 +402,7 @@ If Phase 1-2 don't yield sufficient gains:
 - [ ] **1.3** Experiment with SOA structure for Stat - still AOS layout
 
 ### Phase 2: Core Optimizations (Week 2)
-- [ ] **2.1** Implement single-pass line scanner (memchr2 or custom SIMD) - still 2 memchr calls
+- [x] **2.1** Implement single-pass line scanner (memchr2) - `find_semicolon_newline()` with `memchr2`
 - [ ] **2.2** Generate perfect hash function for 413 stations - still using fxhash
 - [ ] **2.3** Parallel merge phase with rayon - still single-threaded merge
 
