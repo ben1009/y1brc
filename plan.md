@@ -397,23 +397,23 @@ If Phase 1-2 don't yield sufficient gains:
 ## 11. Implementation TODO
 
 ### Phase 1: Quick Wins (Week 1)
-- [ ] **1.1** Combine HashMap lookups (single entry for name+stats)
-- [ ] **1.2** Optimize HashMap capacity (413 entries + 1.0 load factor)
-- [ ] **1.3** Experiment with SOA structure for Stat
+- [x] **1.1** Combine HashMap lookups (single entry for name+stats) - `Entry` struct with combined name+stat
+- [x] **1.2** Optimize HashMap capacity (413 entries) - `with_capacity_and_hasher(413, ...)`
+- [ ] **1.3** Experiment with SOA structure for Stat - still AOS layout
 
 ### Phase 2: Core Optimizations (Week 2)
-- [ ] **2.1** Implement single-pass line scanner (memchr2 or custom SIMD)
-- [ ] **2.2** Generate perfect hash function for 413 stations
-- [ ] **2.3** Parallel merge phase with rayon
+- [ ] **2.1** Implement single-pass line scanner (memchr2 or custom SIMD) - still 2 memchr calls
+- [ ] **2.2** Generate perfect hash function for 413 stations - still using fxhash
+- [ ] **2.3** Parallel merge phase with rayon - still single-threaded merge
 
 ### Phase 3: Advanced (Week 3)
 - [ ] **3.1** Lock-free atomic aggregation (global AtomicStation array)
 - [ ] **3.2** Software prefetching hints
 
 ### Validation
-- [ ] Benchmark shows improvement
-- [ ] `./dev check` passes
-- [ ] All assertions pass (1B rows, 413 stations)
+- [x] `./dev check` passes
+- [x] All assertions pass (1B rows, 413 stations)
+- [ ] Benchmark shows improvement (pending Phase 2/3)
 
 ---
 
