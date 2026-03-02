@@ -403,8 +403,13 @@ If Phase 1-2 don't yield sufficient gains:
 
 ### Phase 2: Core Optimizations (Week 2)
 - [x] **2.1** Implement single-pass line scanner (memchr2) - `find_semicolon_newline()` with `memchr2`
-- [x] **2.2** Generate perfect hash function for 413 stations - build script generates PHF table
-- [ ] **2.3** Parallel merge phase with rayon - array-based merge is already parallel-friendly
+- [x] **2.2** Optimize hash function (first 4 bytes + length) - reverted PHF due to cache misses
+- [x] **2.3** Combined HashMap entry (name+stat) - single lookup per row
+
+### Phase 3: Advanced (Week 3)
+- [ ] **3.1** Lock-free atomic aggregation (global AtomicStation array)
+- [ ] **3.2** Software prefetching hints
+- [ ] **3.3** Further HashMap optimizations (custom allocator?)
 
 ### Phase 3: Advanced (Week 3)
 - [ ] **3.1** Lock-free atomic aggregation (global AtomicStation array)
@@ -413,7 +418,7 @@ If Phase 1-2 don't yield sufficient gains:
 ### Validation
 - [x] `./dev check` passes
 - [x] All assertions pass (1B rows, 413 stations)
-- [ ] Benchmark shows improvement (pending Phase 2/3)
+- [x] Benchmark shows improvement: **1.037s** (was 1.063s, ~2.5% improvement)
 
 ---
 
