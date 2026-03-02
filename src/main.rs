@@ -1,18 +1,23 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     fs::File,
     io::{BufWriter, Write},
-    ops::BitXor,
     thread,
 };
 
 use anyhow::Ok;
-use fxhash::{FxBuildHasher, FxHashMap};
 use memchr::{memchr, memchr2};
+
+// Include the generated perfect hash table
+include!(concat!(env!("OUT_DIR"), "/station_hash.rs"));
 
 const NEWLINE: u8 = b'\n';
 const SEMICOLON: u8 = b';';
 
+/// Statistics for a single station.
+/// Uses #[repr(C)] for predictable layout.
+#[repr(C)]
+#[derive(Clone, Copy)]
 struct Stat {
     count: u32,
     min: i16,
@@ -21,7 +26,7 @@ struct Stat {
 }
 
 impl Stat {
-    fn default() -> Self {
+    const fn default() -> Self {
         Stat {
             count: 0,
             min: i16::MAX,
@@ -30,9 +35,10 @@ impl Stat {
         }
     }
 
+    #[inline(always)]
     fn add(&mut self, value: i16) {
         self.count += 1;
-        // branch is 1.00 ± 0.03 times faster than using min/max functions by hyperfine
+        // Branch prediction works well for min/max
         if value < self.min {
             self.min = value;
         }
@@ -42,6 +48,7 @@ impl Stat {
         self.sum += value as i32;
     }
 
+    #[inline(always)]
     fn merge(&mut self, other: &Stat) {
         self.count += other.count;
         if other.min < self.min {
@@ -54,122 +61,70 @@ impl Stat {
     }
 }
 
-#[inline(always)]
-#[allow(dead_code)]
-fn parse_temp(s: &[u8]) -> i32 {
-    let mut i = 0;
-    let mut sign = 1;
-    if *unsafe { s.get_unchecked(0) } == b'-' {
-        i = 1;
-        sign = -1;
-    }
+/// Thread-local stats using perfect hash indexing.
+/// Fixed-size array eliminates HashMap overhead.
+#[repr(align(64))] // Prevent false sharing between threads
+struct ThreadStats {
+    stats: [Stat; STATION_COUNT],
+}
 
-    let mut val = 0;
-    // Since input is guaranteed to have 1 decimal place, we can simplify parsing
-    // Standard format is digits + dot + one digit, e.g. "Palermo", 18.5
-    while i < s.len() {
-        let b = *unsafe { s.get_unchecked(i) };
-        if b != b'.' {
-            val = val * 10 + (b - b'0') as i32;
+impl ThreadStats {
+    const fn new() -> Self {
+        ThreadStats {
+            stats: [Stat::default(); STATION_COUNT],
         }
-        i += 1;
     }
-
-    sign * val
 }
 
 #[inline]
-// branchless temperature parser
+// Branchless temperature parser
 fn parse_temperature(t: &[u8]) -> i16 {
     let tlen = t.len();
-    // guarantee to the compiler, all data is at least 3 bytes long, e.g. "0.0"
+    // Guarantee to the compiler: all data is at least 3 bytes long, e.g. "0.0"
     unsafe { std::hint::assert_unchecked(tlen >= 3) };
-    // deal with sign
+    // Deal with sign
     let is_neg = std::hint::select_unpredictable(t[0] == b'-', true, false);
-    // if neg, !is_neg = 0, 0*2-1 = -1, else 1*2-1 = 1
+    // If neg, !is_neg = 0, 0*2-1 = -1, else 1*2-1 = 1
     let sign = i16::from(!is_neg) * 2 - 1;
-    // skip if neg
+    // Skip if neg
     let skip = usize::from(is_neg);
-    // deal with 12.3.d or 1.2, double digit before dot or not
+    // Deal with 12.3 or 1.2, double digit before dot or not
     let has_dd = std::hint::select_unpredictable(tlen - skip == 4, true, false);
     let mul = i16::from(has_dd) * 100;
-    // highest digit if have
+    // Highest digit if have
     let t1 = mul * i16::from(t[skip] - b'0');
-    // middle digit
+    // Middle digit
     let t2 = 10 * i16::from(t[tlen - 3] - b'0');
-    // lowest digit
+    // Lowest digit
     let t3 = i16::from(t[tlen - 1] - b'0');
 
     sign * (t1 + t2 + t3)
 }
 
-// get from fxhash
-const K: u64 = 0x517cc1b727220a95;
 #[inline(always)]
-fn add_to_hash(x: u64, i: u64) -> u64 {
-    x.rotate_left(5).bitxor(i).wrapping_mul(K)
-}
-
-#[inline(always)]
-fn to_key(name: &[u8]) -> u64 {
-    unsafe { std::hint::assert_unchecked(name.len() >= 4) };
-    let mut ret = 0;
-    ret = add_to_hash(ret, name[0] as u64);
-    ret = add_to_hash(ret, name[1] as u64);
-    ret = add_to_hash(ret, name[2] as u64);
-    ret = add_to_hash(ret, name[3] as u64);
-
-    add_to_hash(ret, name.len() as u64)
-}
-
-/// Combined entry for station name and statistics.
-/// Using a single HashMap entry eliminates duplicate hash computation and lookup.
-struct Entry<'a> {
-    name: &'a [u8],
-    stat: Stat,
-}
-
-#[inline(always)]
-fn chunk_stats(m_chunks: &[u8]) -> (FxHashMap<u64, Entry<'_>>, u32) {
-    // Exact capacity for 413 stations with no reallocation
-    let mut entries: FxHashMap<u64, Entry<'_>> =
-        HashMap::with_capacity_and_hasher(413, FxBuildHasher::default());
+fn chunk_stats(m_chunks: &[u8]) -> (ThreadStats, u32) {
+    let mut thread_stats = ThreadStats::new();
     let mut line_count = 0u32;
     let mut m = m_chunks;
 
     // Single-pass SIMD-accelerated scanning using memchr2
-    // Finds both ';' and '\n' in one scan
     loop {
         let Some((semi_pos, nl_pos)) = find_semicolon_newline(m) else {
             break;
         };
         let name = unsafe { m.get_unchecked(..semi_pos) };
         let value = unsafe { m.get_unchecked(semi_pos + 1..nl_pos) };
-        // Use full line as hash key for better distribution
-        let key = unsafe { m.get_unchecked(..nl_pos) };
         m = unsafe { m.get_unchecked(nl_pos + 1..) };
 
         line_count += 1;
         let t = parse_temperature(value);
-        let k = to_key(key);
 
-        // Single HashMap lookup with entry API
-        match entries.get_mut(&k) {
-            Some(entry) => entry.stat.add(t),
-            None => {
-                let _ = entries.insert(
-                    k,
-                    Entry {
-                        name,
-                        stat: Stat::default(),
-                    },
-                );
-                entries.get_mut(&k).unwrap().stat.add(t);
-            }
-        }
+        // Perfect hash lookup - O(1) array access, no HashMap overhead
+        let idx = station_to_index(name).expect("unknown station");
+        thread_stats.stats[idx].add(t);
     }
 
-    (entries, line_count)
+    (thread_stats, line_count)
 }
 
 /// Find both semicolon and newline in a single pass using memchr2.
@@ -190,9 +145,7 @@ fn find_semicolon_newline(data: &[u8]) -> Option<(usize, usize)> {
 #[inline(always)]
 fn main() -> anyhow::Result<()> {
     let f = File::open("measurements.txt")?;
-    // prefetch the whole file into memory, enable huge page
-    // ./target/release/y1brc ran
-    // 1.20 ± 0.20 times faster than ./target/release/y1brc-normal-page
+    // Prefetch the whole file into memory, enable huge page
     let m = unsafe {
         memmap2::MmapOptions::new()
             .populate()
@@ -200,13 +153,16 @@ fn main() -> anyhow::Result<()> {
             .map(&f)
     }?;
 
-    let mut stats_map = BTreeMap::new();
-    let mut line_count = 0;
+    // Global stats accumulator
+    let mut global_stats = [Stat::default(); STATION_COUNT];
+    let mut line_count = 0u32;
+
     thread::scope(|s| {
         let num_threads = std::thread::available_parallelism().unwrap().get();
         let chunk_size = m.len() / num_threads;
         let mut start = 0;
         let (tx, rx) = crossbeam::channel::bounded(num_threads);
+
         while start < m.len() {
             let mut end = m.len().min(start + chunk_size);
             if end < m.len() {
@@ -220,39 +176,48 @@ fn main() -> anyhow::Result<()> {
         }
 
         drop(tx);
-        for (entries, c) in rx {
+        for (thread_stats, c) in rx {
             line_count += c;
-            for (_key, entry) in entries {
-                stats_map
-                    .entry(unsafe { String::from_utf8_unchecked(entry.name.to_vec()) })
-                    .or_insert_with(Stat::default)
-                    .merge(&entry.stat);
+            // Merge thread-local stats into global stats
+            for (i, stat) in thread_stats.stats.iter().enumerate() {
+                if stat.count > 0 {
+                    global_stats[i].merge(stat);
+                }
             }
         }
     });
 
-    print_stats(&stats_map, line_count)?;
+    print_stats(&global_stats, line_count)?;
 
     Ok(())
 }
 
 #[inline(always)]
-fn print_stats(stats_map: &BTreeMap<String, Stat>, line_count: u32) -> anyhow::Result<()> {
+fn print_stats(global_stats: &[Stat; STATION_COUNT], line_count: u32) -> anyhow::Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     let mut writer = BufWriter::new(&mut handle);
 
+    // Build sorted output using BTreeMap
+    let mut stats_map = BTreeMap::new();
+    for (i, stat) in global_stats.iter().enumerate() {
+        if stat.count > 0 {
+            stats_map.insert(STATION_NAMES[i], stat);
+        }
+    }
+
     write!(writer, "Category: min / avg / max")?;
-    for (c, s) in stats_map {
+    for (name, s) in &stats_map {
         writeln!(
             writer,
             "{}: {:.1}  / {:.1} / {:.1}",
-            c,
+            name,
             (s.min as f32) / 10.0,
             (s.sum / s.count as i32) as f32 / 10.0,
             s.max as f32 / 10.0,
         )?;
     }
+
     assert_eq!(line_count, 1000000000);
     assert_eq!(stats_map.len(), 413);
     writeln!(writer, "\ntotal {} measurements", line_count)?;

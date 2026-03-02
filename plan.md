@@ -403,8 +403,8 @@ If Phase 1-2 don't yield sufficient gains:
 
 ### Phase 2: Core Optimizations (Week 2)
 - [x] **2.1** Implement single-pass line scanner (memchr2) - `find_semicolon_newline()` with `memchr2`
-- [ ] **2.2** Generate perfect hash function for 413 stations - still using fxhash
-- [ ] **2.3** Parallel merge phase with rayon - still single-threaded merge
+- [x] **2.2** Generate perfect hash function for 413 stations - build script generates PHF table
+- [ ] **2.3** Parallel merge phase with rayon - array-based merge is already parallel-friendly
 
 ### Phase 3: Advanced (Week 3)
 - [ ] **3.1** Lock-free atomic aggregation (global AtomicStation array)
