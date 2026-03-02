@@ -122,51 +122,29 @@ fn to_key(name: &[u8]) -> u64 {
     add_to_hash(ret, name.len() as u64)
 }
 
-/// Combined entry for station name and statistics.
-/// Using a single HashMap entry eliminates duplicate hash computation and lookup.
-struct Entry<'a> {
-    name: &'a [u8],
-    stat: Stat,
-}
-
 #[inline(always)]
-fn chunk_stats(m_chunks: &[u8]) -> (FxHashMap<u64, Entry<'_>>, u32) {
-    // Exact capacity for 413 stations with no reallocation
-    let mut entries: FxHashMap<u64, Entry<'_>> =
-        HashMap::with_capacity_and_hasher(413, FxBuildHasher::default());
-    let mut line_count = 0u32;
+fn chunk_stats(m_chunks: &[u8]) -> (FxHashMap<u64, Stat>, FxHashMap<u64, &[u8]>, u32) {
+    let mut stats = HashMap::with_capacity_and_hasher(1024, FxBuildHasher::default());
+    let mut key_names = HashMap::with_capacity_and_hasher(1024, FxBuildHasher::default());
+    let mut line_count = 0;
     let mut m = m_chunks;
-
-    // SIMD-accelerated line scanning
+    // simd to speed up searching
     while let Some(end) = memchr::memchr(NEWLINE, m) {
         let separate = memchr(SEMICOLON, m).context("invalid file format").unwrap();
         let name = unsafe { m.get_unchecked(..separate) };
         let value = unsafe { m.get_unchecked(separate + 1..end) };
-        // Use full line as hash key for better distribution
+        // for better hash, use the whole data as key
         let key = unsafe { m.get_unchecked(..end) };
         m = unsafe { m.get_unchecked(end + 1..) };
 
         line_count += 1;
-        let t = parse_temperature(value);
+        let t = parse_temperature(value); //parse_temp(value);
         let k = to_key(key);
-
-        // Single HashMap lookup with entry API
-        match entries.get_mut(&k) {
-            Some(entry) => entry.stat.add(t),
-            None => {
-                let _ = entries.insert(
-                    k,
-                    Entry {
-                        name,
-                        stat: Stat::default(),
-                    },
-                );
-                entries.get_mut(&k).unwrap().stat.add(t);
-            }
-        }
+        key_names.entry(k).or_insert(name);
+        stats.entry(k).or_insert_with(Stat::default).add(t);
     }
 
-    (entries, line_count)
+    (stats, key_names, line_count)
 }
 
 #[inline(always)]
@@ -202,13 +180,13 @@ fn main() -> anyhow::Result<()> {
         }
 
         drop(tx);
-        for (entries, c) in rx {
+        for (s, k, c) in rx {
             line_count += c;
-            for (_key, entry) in entries {
+            for (key, stat) in s {
                 stats_map
-                    .entry(unsafe { String::from_utf8_unchecked(entry.name.to_vec()) })
+                    .entry(unsafe { String::from_utf8_unchecked(k[&key].to_vec()) })
                     .or_insert_with(Stat::default)
-                    .merge(&entry.stat);
+                    .merge(&stat);
             }
         }
     });
