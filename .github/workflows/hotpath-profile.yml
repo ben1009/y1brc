@@ -1,0 +1,65 @@
+name: hotpath-profile
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Create metrics directory
+        run: mkdir -p /tmp/metrics
+
+      - name: Head benchmark (timing)
+        env:
+          HOTPATH_OUTPUT_FORMAT: json
+          HOTPATH_OUTPUT_PATH: /tmp/metrics/head_timing.json
+        run: cargo run --release --example benchmark --features='hotpath'
+
+      - name: Checkout base
+        run: git checkout ${{ github.event.pull_request.base.sha }}
+
+      - name: Check if hotpath feature exists on base
+        id: check_feature
+        run: |
+          if grep -q "hotpath" Cargo.toml 2>/dev/null; then
+            echo "has_hotpath=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_hotpath=false" >> $GITHUB_OUTPUT
+            echo "::warning::hotpath feature not found on base branch, skipping base benchmark"
+          fi
+
+      - name: Base benchmark (timing)
+        if: steps.check_feature.outputs.has_hotpath == 'true'
+        env:
+          HOTPATH_OUTPUT_FORMAT: json
+          HOTPATH_OUTPUT_PATH: /tmp/metrics/base_timing.json
+        run: cargo run --release --example benchmark --features='hotpath'
+
+      - name: Create placeholder for missing base metrics
+        if: steps.check_feature.outputs.has_hotpath != 'true'
+        run: echo '{}' > /tmp/metrics/base_timing.json
+
+      - name: Save PR metadata
+        run: |
+          echo '${{ github.event.pull_request.number }}' \
+            > /tmp/metrics/pr_number.txt
+          echo '${{ github.base_ref }}' > /tmp/metrics/base_ref.txt
+          echo '${{ github.head_ref }}' > /tmp/metrics/head_ref.txt
+          echo '${{ steps.check_feature.outputs.has_hotpath }}' > /tmp/metrics/has_hotpath.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: profile-metrics
+          path: /tmp/metrics/
+          retention-days: 1
