@@ -69,13 +69,37 @@ jobs:
               --benchmark-id "timing"
           fi
 
-      - name: Post commit comment (push)
+      - name: Find associated PR
         if: ${{ github.event_name == 'push' }}
+        id: find_pr
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Find PR associated with this branch
+          pr_number=$(gh pr list --head "${{ github.ref_name }}" --json number -q '.[0].number')
+          if [ -n "$pr_number" ]; then
+            echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
+            echo "found_pr=true" >> $GITHUB_OUTPUT
+          else
+            echo "found_pr=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post benchmark comment on PR (push)
+        if: ${{ github.event_name == 'push' && steps.find_pr.outputs.found_pr == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr_number="${{ steps.find_pr.outputs.pr_number }}"
           if [ -f /tmp/metrics/timing.json ] && [ "$(cat /tmp/metrics/timing.json)" != '{}' ]; then
-            echo "## 🔥 Hotpath Benchmark Results" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            cat /tmp/metrics/timing.json >> $GITHUB_STEP_SUMMARY
+            echo "## 🔥 Hotpath Benchmark Results (Commit ${{ github.sha_short }})" > /tmp/comment.md
+            echo "" >> /tmp/comment.md
+            echo '```json' >> /tmp/comment.md
+            cat /tmp/metrics/timing.json >> /tmp/comment.md
+            echo '' >> /tmp/comment.md
+            echo '```' >> /tmp/comment.md
+            gh pr comment "$pr_number" --body-file /tmp/comment.md
+          else
+            gh pr comment "$pr_number" --body "## 🔥 Hotpath Benchmark
+
+No benchmark results available (hotpath feature may not be enabled)."
           fi
