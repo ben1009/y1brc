@@ -180,30 +180,14 @@ fn main() -> anyhow::Result<()> {
         }
 
         drop(tx);
-
-        // First merge all stats using hash key to avoid repeated String allocations
-        let mut merged_stats: FxHashMap<u64, Stat> =
-            HashMap::with_capacity_and_hasher(1024, FxBuildHasher::default());
-        let mut key_names: FxHashMap<u64, &[u8]> =
-            HashMap::with_capacity_and_hasher(1024, FxBuildHasher::default());
-
         for (s, k, c) in rx {
             line_count += c;
             for (key, stat) in s {
-                key_names.entry(key).or_insert(k[&key]);
-                merged_stats
-                    .entry(key)
+                stats_map
+                    .entry(unsafe { String::from_utf8_unchecked(k[&key].to_vec()) })
                     .or_insert_with(Stat::default)
                     .merge(&stat);
             }
-        }
-
-        // Convert to BTreeMap once, with single String allocation per city
-        for (key, stat) in merged_stats {
-            stats_map.insert(
-                unsafe { String::from_utf8_unchecked(key_names[&key].to_vec()) },
-                stat,
-            );
         }
     });
 
