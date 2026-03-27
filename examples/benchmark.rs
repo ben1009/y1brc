@@ -137,6 +137,7 @@ fn main() -> anyhow::Result<()> {
         drop(tx);
 
         // First merge all stats using hash key to avoid repeated String allocations
+        // This optimization reduces memory allocations during multi-threaded processing
         let mut merged_stats: FxHashMap<u64, Stat> =
             HashMap::with_capacity_and_hasher(1024, FxBuildHasher::default());
         let mut key_names: FxHashMap<u64, &[u8]> =
