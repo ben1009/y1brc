@@ -12,6 +12,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   comment:
@@ -52,7 +53,7 @@ jobs:
         run: cargo install hotpath --features=utils --bin hotpath-utils
 
       - name: Post PR comment (workflow_run)
-        if: ${{ github.event_name == 'workflow_run' && hashFiles('/tmp/metrics/pr_number.txt') != '' }}
+        if: ${{ github.event_name == 'workflow_run' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -76,11 +77,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Find PR associated with this branch
-          pr_number=$(gh pr list --head "${{ github.ref_name }}" --json number -q '.[0].number')
+          branch="${GITHUB_REF_NAME}"
+          echo "Looking for PR with head: $branch"
+          pr_number=$(gh pr list --head "$branch" --json number -q '.[0].number' 2>/dev/null || echo "")
           if [ -n "$pr_number" ]; then
+            echo "Found PR: $pr_number"
             echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
             echo "found_pr=true" >> $GITHUB_OUTPUT
           else
+            echo "No PR found for branch: $branch"
             echo "found_pr=false" >> $GITHUB_OUTPUT
           fi
 
@@ -90,8 +95,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           pr_number="${{ steps.find_pr.outputs.pr_number }}"
+          sha_short="${GITHUB_SHA::7}"
           if [ -f /tmp/metrics/timing.json ] && [ "$(cat /tmp/metrics/timing.json)" != '{}' ]; then
-            echo "## 🔥 Hotpath Benchmark Results (Commit ${{ github.sha_short }})" > /tmp/comment.md
+            echo "## 🔥 Hotpath Benchmark Results (Commit ${sha_short})" > /tmp/comment.md
             echo "" >> /tmp/comment.md
             echo '```json' >> /tmp/comment.md
             cat /tmp/metrics/timing.json >> /tmp/comment.md
