@@ -5,107 +5,42 @@ on:
     workflows: ["hotpath-profile"]
     types:
       - completed
-  push:
-    branches:
-      - '**'
 
 permissions:
   contents: read
   pull-requests: write
-  issues: write
 
 jobs:
   comment:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Download artifacts from workflow_run
-        if: ${{ github.event_name == 'workflow_run' }}
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: profile-metrics
           path: /tmp/metrics/
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
 
-      - name: Run benchmark on push
-        if: ${{ github.event_name == 'push' }}
-        env:
-          HOTPATH_OUTPUT_FORMAT: json
-          HOTPATH_OUTPUT_PATH: /tmp/metrics/timing.json
-        run: |
-          mkdir -p /tmp/metrics
-          if grep -q "hotpath" Cargo.toml 2>/dev/null; then
-            cargo run --release --example benchmark --features='hotpath'
-          else
-            echo "hotpath feature not found, skipping benchmark"
-            echo '{}' > /tmp/metrics/timing.json
-          fi
-
       - name: Install hotpath-utils CLI
         run: cargo install hotpath --features=utils --bin hotpath-utils
 
-      - name: Post PR comment (workflow_run)
-        if: ${{ github.event_name == 'workflow_run' }}
+      - name: Post PR comment
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [ -f /tmp/metrics/pr_number.txt ]; then
-            pr_number=$(cat /tmp/metrics/pr_number.txt)
-            export GITHUB_BASE_REF=$(cat /tmp/metrics/base_ref.txt)
-            export GITHUB_HEAD_REF=$(cat /tmp/metrics/head_ref.txt)
-            hotpath-utils profile-pr \
-              --head-metrics /tmp/metrics/head_timing.json \
-              --base-metrics /tmp/metrics/base_timing.json \
-              --github-token "$GH_TOKEN" \
-              --pr-number "$pr_number" \
-              --benchmark-id "timing"
-          fi
-
-      - name: Find associated PR
-        if: ${{ github.event_name == 'push' }}
-        id: find_pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Find PR associated with this branch
-          branch="${GITHUB_REF_NAME}"
-          echo "Looking for PR with head: $branch"
-          pr_number=$(gh pr list --head "$branch" --json number -q '.[0].number' 2>/dev/null || echo "")
-          if [ -n "$pr_number" ]; then
-            echo "Found PR: $pr_number"
-            echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
-            echo "found_pr=true" >> $GITHUB_OUTPUT
-          else
-            echo "No PR found for branch: $branch"
-            echo "found_pr=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Post benchmark comment on PR (push)
-        if: ${{ github.event_name == 'push' && steps.find_pr.outputs.found_pr == 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          pr_number="${{ steps.find_pr.outputs.pr_number }}"
-          sha_short="${GITHUB_SHA::7}"
-          if [ -f /tmp/metrics/timing.json ] && [ "$(cat /tmp/metrics/timing.json)" != '{}' ]; then
-            echo "## 🔥 Hotpath Benchmark Results (Commit ${sha_short})" > /tmp/comment.md
-            echo "" >> /tmp/comment.md
-            echo '```json' >> /tmp/comment.md
-            cat /tmp/metrics/timing.json >> /tmp/comment.md
-            echo '' >> /tmp/comment.md
-            echo '```' >> /tmp/comment.md
-            gh pr comment "$pr_number" --body-file /tmp/comment.md
-          else
-            gh pr comment "$pr_number" --body "## 🔥 Hotpath Benchmark
-
-No benchmark results available (hotpath feature may not be enabled)."
-          fi
+          pr_number=$(cat /tmp/metrics/pr_number.txt)
+          export GITHUB_BASE_REF=$(cat /tmp/metrics/base_ref.txt)
+          export GITHUB_HEAD_REF=$(cat /tmp/metrics/head_ref.txt)
+          hotpath-utils profile-pr \
+            --head-metrics /tmp/metrics/head_timing.json \
+            --base-metrics /tmp/metrics/base_timing.json \
+            --github-token "$GH_TOKEN" \
+            --pr-number "$pr_number" \
+            --benchmark-id "timing"
