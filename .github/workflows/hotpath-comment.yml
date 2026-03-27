@@ -27,10 +27,21 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
 
+      - name: Check if base has hotpath
+        id: check_base
+        run: |
+          if [ -f /tmp/metrics/has_hotpath.txt ]; then
+            has_hotpath=$(cat /tmp/metrics/has_hotpath.txt)
+            echo "has_hotpath=$has_hotpath" >> $GITHUB_OUTPUT
+          else
+            echo "has_hotpath=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Install hotpath-utils CLI
         run: cargo install hotpath --features=utils --bin hotpath-utils
 
       - name: Post PR comment
+        if: steps.check_base.outputs.has_hotpath == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -43,3 +54,15 @@ jobs:
             --github-token "$GH_TOKEN" \
             --pr-number "$(cat /tmp/metrics/pr_number.txt)" \
             --benchmark-id "timing"
+
+      - name: Post initial setup comment
+        if: steps.check_base.outputs.has_hotpath != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr_number=$(cat /tmp/metrics/pr_number.txt)
+          gh pr comment "$pr_number" --body "## 🚀 Hotpath Profiling Setup Complete
+
+This PR adds hotpath profiling support. Since the base branch doesn't have hotpath yet, no comparison is available.
+
+Future PRs will show performance comparisons here."
