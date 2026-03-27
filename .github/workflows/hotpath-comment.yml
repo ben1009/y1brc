@@ -27,6 +27,29 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
 
+      - name: Debug - List downloaded files
+        run: |
+          echo "=== Downloaded files ==="
+          ls -la /tmp/metrics/
+          echo ""
+          echo "=== PR number ==="
+          cat /tmp/metrics/pr_number.txt || echo "pr_number.txt not found"
+          echo ""
+          echo "=== Base ref ==="
+          cat /tmp/metrics/base_ref.txt || echo "base_ref.txt not found"
+          echo ""
+          echo "=== Head ref ==="
+          cat /tmp/metrics/head_ref.txt || echo "head_ref.txt not found"
+          echo ""
+          echo "=== Has hotpath ==="
+          cat /tmp/metrics/has_hotpath.txt || echo "has_hotpath.txt not found"
+          echo ""
+          echo "=== Head metrics (first 500 chars) ==="
+          head -c 500 /tmp/metrics/head_timing.json || echo "head_timing.json not found"
+          echo ""
+          echo "=== Base metrics (first 500 chars) ==="
+          head -c 500 /tmp/metrics/base_timing.json || echo "base_timing.json not found"
+
       - name: Install hotpath-utils CLI
         run: cargo install hotpath --features=utils --bin hotpath-utils
 
@@ -36,8 +59,27 @@ jobs:
         run: |
           set -euo pipefail
           pr_number=$(cat /tmp/metrics/pr_number.txt)
+          echo "PR number: $pr_number"
           export GITHUB_BASE_REF=$(cat /tmp/metrics/base_ref.txt)
           export GITHUB_HEAD_REF=$(cat /tmp/metrics/head_ref.txt)
+          echo "Base ref: $GITHUB_BASE_REF"
+          echo "Head ref: $GITHUB_HEAD_REF"
+          
+          # Check if hotpath feature exists on base
+          has_hotpath=$(cat /tmp/metrics/has_hotpath.txt)
+          if [ "$has_hotpath" != "true" ]; then
+            echo "Base branch doesn't have hotpath feature. Posting simple message."
+            gh pr comment "$pr_number" --body "## 🔥 Hotpath Benchmark
+
+✅ Head benchmark completed successfully.
+
+⚠️ Base branch doesn't have hotpath feature yet - no comparison available.
+
+The hotpath profiling is now active for future PRs."
+            exit 0
+          fi
+          
+          echo "Running hotpath-utils profile-pr..."
           hotpath-utils profile-pr \
             --head-metrics /tmp/metrics/head_timing.json \
             --base-metrics /tmp/metrics/base_timing.json \
